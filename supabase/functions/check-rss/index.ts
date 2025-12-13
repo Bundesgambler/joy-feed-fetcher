@@ -144,10 +144,12 @@ Deno.serve(async (req) => {
         console.log('Processing item:', item.link);
         
         // Send link to webhook
+        console.log('Calling webhook:', WEBHOOK_URL);
         const webhookResponse = await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
           },
           body: JSON.stringify({
             link: item.link,
@@ -156,13 +158,16 @@ Deno.serve(async (req) => {
           })
         });
         
+        console.log('Webhook response status:', webhookResponse.status);
+        
         let responseText = '';
         
         if (webhookResponse.ok) {
           responseText = await webhookResponse.text();
           console.log('Webhook response for', item.link, ':', responseText.substring(0, 100));
         } else {
-          console.error('Webhook error:', webhookResponse.status);
+          const errorBody = await webhookResponse.text();
+          console.error('Webhook error:', webhookResponse.status, errorBody);
           responseText = `Webhook error: ${webhookResponse.status}`;
         }
         
