@@ -163,8 +163,25 @@ Deno.serve(async (req) => {
         let responseText = '';
         
         if (webhookResponse.ok) {
-          responseText = await webhookResponse.text();
-          console.log('Webhook response for', item.link, ':', responseText.substring(0, 100));
+          const rawResponse = await webhookResponse.text();
+          console.log('Webhook raw response for', item.link, ':', rawResponse.substring(0, 100));
+          
+          // Parse JSON and extract the "output" field
+          try {
+            const jsonResponse = JSON.parse(rawResponse);
+            // Handle both array format [{"output": "..."}] and object format {"output": "..."}
+            if (Array.isArray(jsonResponse) && jsonResponse.length > 0 && jsonResponse[0].output) {
+              responseText = jsonResponse[0].output;
+            } else if (jsonResponse.output) {
+              responseText = jsonResponse.output;
+            } else {
+              responseText = rawResponse; // Fallback to raw response
+            }
+          } catch {
+            responseText = rawResponse; // If not JSON, use raw response
+          }
+          
+          console.log('Extracted text:', responseText.substring(0, 100));
         } else {
           const errorBody = await webhookResponse.text();
           console.error('Webhook error:', webhookResponse.status, errorBody);
