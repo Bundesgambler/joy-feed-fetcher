@@ -20,6 +20,7 @@ export type Database = {
           id: string
           link: string
           processed_at: string
+          published_at: string | null
           response_text: string | null
           title: string | null
         }
@@ -28,6 +29,7 @@ export type Database = {
           id?: string
           link: string
           processed_at?: string
+          published_at?: string | null
           response_text?: string | null
           title?: string | null
         }
@@ -36,6 +38,7 @@ export type Database = {
           id?: string
           link?: string
           processed_at?: string
+          published_at?: string | null
           response_text?: string | null
           title?: string | null
         }

@@ -180,6 +180,7 @@ const Index = () => {
                   title={item.title}
                   link={item.link}
                   responseText={item.response_text}
+                  publishedAt={item.published_at}
                   processedAt={item.processed_at}
                 />
               </div>

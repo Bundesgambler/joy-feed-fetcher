@@ -11,11 +11,15 @@ interface NewsCardProps {
   title: string | null;
   link: string;
   responseText: string | null;
+  publishedAt: string | null;
   processedAt: string;
 }
 
-export function NewsCard({ title, link, responseText, processedAt }: NewsCardProps) {
+export function NewsCard({ title, link, responseText, publishedAt, processedAt }: NewsCardProps) {
   const [copied, setCopied] = useState(false);
+
+  // Use published date if available, otherwise fall back to processed date
+  const displayDate = publishedAt || processedAt;
 
   const handleCopy = async () => {
     const textToCopy = responseText 
@@ -43,7 +47,7 @@ export function NewsCard({ title, link, responseText, processedAt }: NewsCardPro
             <div className="flex items-center gap-2 mt-2">
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">
-                {format(new Date(processedAt), "dd. MMM yyyy, HH:mm", { locale: de })}
+                {format(new Date(displayDate), "dd. MMM yyyy, HH:mm", { locale: de })}
               </span>
             </div>
           </div>

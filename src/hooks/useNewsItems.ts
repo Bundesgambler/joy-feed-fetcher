@@ -8,16 +8,21 @@ export interface NewsItem {
   response_text: string | null;
   processed_at: string;
   created_at: string;
+  published_at: string | null;
 }
 
 export function useNewsItems() {
   return useQuery({
     queryKey: ["news-items"],
     queryFn: async () => {
+      // Get timestamp for 12 hours ago
+      const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+      
       const { data, error } = await supabase
         .from("news_items")
         .select("*")
-        .order("processed_at", { ascending: false });
+        .or(`published_at.gte.${twelveHoursAgo},published_at.is.null`)
+        .order("published_at", { ascending: false, nullsFirst: false });
 
       if (error) throw error;
       return data as NewsItem[];
