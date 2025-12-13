@@ -11,6 +11,7 @@ const WEBHOOK_URL = 'https://n8n.mariohau.de/webhook-test/0d0e30a1-bd1a-4f86-b3a
 interface RSSItem {
   title: string;
   link: string;
+  pubDate: string | null;
 }
 
 function parseRSS(xmlText: string): RSSItem[] {
@@ -20,6 +21,7 @@ function parseRSS(xmlText: string): RSSItem[] {
   const itemRegex = /<item>([\s\S]*?)<\/item>/g;
   const titleRegex = /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/;
   const linkRegex = /<link><!\[CDATA\[([\s\S]*?)\]\]><\/link>|<link>([\s\S]*?)<\/link>/;
+  const pubDateRegex = /<pubDate><!\[CDATA\[([\s\S]*?)\]\]><\/pubDate>|<pubDate>([\s\S]*?)<\/pubDate>/;
   
   let match;
   while ((match = itemRegex.exec(xmlText)) !== null) {
@@ -27,18 +29,33 @@ function parseRSS(xmlText: string): RSSItem[] {
     
     const titleMatch = titleRegex.exec(itemContent);
     const linkMatch = linkRegex.exec(itemContent);
+    const pubDateMatch = pubDateRegex.exec(itemContent);
     
     if (linkMatch) {
       const title = titleMatch ? (titleMatch[1] || titleMatch[2] || '').trim() : '';
       const link = (linkMatch[1] || linkMatch[2] || '').trim();
+      const pubDate = pubDateMatch ? (pubDateMatch[1] || pubDateMatch[2] || '').trim() : null;
       
       if (link) {
-        items.push({ title, link });
+        items.push({ title, link, pubDate });
       }
     }
   }
   
   return items;
+}
+
+function isArticleWithin12Hours(pubDate: string | null): boolean {
+  if (!pubDate) return true; // If no date, include it
+  
+  try {
+    const articleDate = new Date(pubDate);
+    const now = new Date();
+    const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+    return articleDate >= twelveHoursAgo;
+  } catch {
+    return true; // If parsing fails, include it
+  }
 }
 
 function isWithinOperatingHours(): boolean {
@@ -113,9 +130,11 @@ Deno.serve(async (req) => {
     const existingLinks = new Set(existingItems?.map(item => item.link) || []);
     console.log('Existing items in database:', existingLinks.size);
     
-    // Filter new items
-    const newItems = rssItems.filter(item => !existingLinks.has(item.link));
-    console.log('New items to process:', newItems.length);
+    // Filter new items that are within 12 hours
+    const newItems = rssItems.filter(item => 
+      !existingLinks.has(item.link) && isArticleWithin12Hours(item.pubDate)
+    );
+    console.log('New items to process (within 12 hours):', newItems.length);
     
     let processedCount = 0;
     
@@ -147,14 +166,17 @@ Deno.serve(async (req) => {
           responseText = `Webhook error: ${webhookResponse.status}`;
         }
         
-        // Store in database
+        // Store in database with published_at from RSS
+        const publishedAt = item.pubDate ? new Date(item.pubDate).toISOString() : null;
+        
         const { error: insertError } = await supabase
           .from('news_items')
           .insert({
             link: item.link,
             title: item.title,
             response_text: responseText,
-            processed_at: new Date().toISOString()
+            processed_at: new Date().toISOString(),
+            published_at: publishedAt
           });
         
         if (insertError) {
