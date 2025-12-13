@@ -6,7 +6,7 @@ const corsHeaders = {
 }
 
 const RSS_URL = 'https://nius.de/rss'
-const WEBHOOK_URL = 'https://n8n.mariohau.de/webhook-test/0d0e30a1-bd1a-4f86-b3af-25040c575a7e'
+const WEBHOOK_URL = 'https://n8n.mariohau.de/webhook/0d0e30a1-bd1a-4f86-b3af-25040c575a7e'
 
 interface RSSItem {
   title: string;
