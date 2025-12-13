@@ -1,11 +1,22 @@
 import { useState, useEffect } from "react";
-import { RefreshCw, Rss, Loader2 } from "lucide-react";
+import { RefreshCw, Rss, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NewsCard } from "@/components/NewsCard";
 import { StatusIndicator } from "@/components/StatusIndicator";
 import { useNewsItems } from "@/hooks/useNewsItems";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 function isWithinOperatingHours(): boolean {
   const now = new Date();
@@ -16,6 +27,7 @@ function isWithinOperatingHours(): boolean {
 const Index = () => {
   const { data: newsItems, isLoading, refetch } = useNewsItems();
   const [isChecking, setIsChecking] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
   const [isActive, setIsActive] = useState(isWithinOperatingHours());
 
   useEffect(() => {
@@ -42,6 +54,29 @@ const Index = () => {
       console.error(err);
     } finally {
       setIsChecking(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    setIsCleaning(true);
+    try {
+      const { error } = await supabase
+        .from("news_items")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000"); // Delete all rows
+      
+      if (error) {
+        toast.error("Fehler beim Löschen");
+        console.error(error);
+      } else {
+        toast.success("Alle Artikel gelöscht");
+        refetch();
+      }
+    } catch (err) {
+      toast.error("Verbindungsfehler");
+      console.error(err);
+    } finally {
+      setIsCleaning(false);
     }
   };
 
@@ -77,23 +112,55 @@ const Index = () => {
               {newsItems?.length || 0} Artikel insgesamt
             </p>
           </div>
-          <Button
-            onClick={handleManualCheck}
-            disabled={isChecking}
-            size="lg"
-          >
-            {isChecking ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Prüfe...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Jetzt prüfen
-              </>
-            )}
-          </Button>
+          <div className="flex items-center gap-2">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  disabled={isCleaning || !newsItems?.length}
+                >
+                  {isCleaning ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Alle Artikel löschen?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Dies löscht alle {newsItems?.length || 0} gespeicherten Artikel. 
+                    Diese Aktion kann nicht rückgängig gemacht werden.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleCleanup}>
+                    Alle löschen
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            <Button
+              onClick={handleManualCheck}
+              disabled={isChecking}
+              size="lg"
+            >
+              {isChecking ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Prüfe...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Jetzt prüfen
+                </>
+              )}
+            </Button>
+          </div>
         </div>
 
         {/* News List */}
