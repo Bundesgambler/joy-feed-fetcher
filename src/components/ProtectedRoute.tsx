@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { AUTH_COOKIE_NAME, getCookie } from '@/lib/cookies';
+import { supabase } from '@/integrations/supabase/client';
+import { getAuthToken, clearAuth } from '@/lib/cookies';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -11,15 +12,38 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const cookieValue = getCookie(AUTH_COOKIE_NAME);
-    console.log(
-      'ProtectedRoute check - document.cookie:',
-      typeof document !== 'undefined' ? document.cookie : 'no document'
-    );
-    console.log('ProtectedRoute check - app_auth:', cookieValue);
+    const validateToken = async () => {
+      const token = getAuthToken();
+      
+      if (!token) {
+        setIsAuthenticated(false);
+        setIsChecking(false);
+        return;
+      }
 
-    setIsAuthenticated(cookieValue === 'true');
-    setIsChecking(false);
+      try {
+        // Validate token with server
+        const { data, error } = await supabase.functions.invoke('validate-token', {
+          body: { token },
+        });
+
+        if (error || !data?.valid) {
+          // Token is invalid, clear it
+          clearAuth();
+          setIsAuthenticated(false);
+        } else {
+          setIsAuthenticated(true);
+        }
+      } catch (error) {
+        console.error('Token validation error:', error);
+        clearAuth();
+        setIsAuthenticated(false);
+      }
+      
+      setIsChecking(false);
+    };
+
+    validateToken();
   }, []);
 
   if (isChecking) {
