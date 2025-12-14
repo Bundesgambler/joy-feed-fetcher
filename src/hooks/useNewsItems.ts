@@ -22,6 +22,7 @@ export function useNewsItems() {
         .from("news_items")
         .select("*")
         .or(`published_at.gte.${twelveHoursAgo},published_at.is.null`)
+        .not("response_text", "like", "Webhook error:%")
         .order("published_at", { ascending: false, nullsFirst: false });
 
       if (error) throw error;
