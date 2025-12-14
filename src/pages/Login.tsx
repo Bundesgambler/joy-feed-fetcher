@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-import { AUTH_COOKIE_NAME, AUTH_COOKIE_EXPIRY_DAYS, getCookie, setCookie } from '@/lib/cookies';
+import { getAuthToken, setAuthToken } from '@/lib/cookies';
 
 const Login = () => {
   const [password, setPassword] = useState('');
@@ -15,18 +15,24 @@ const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated with valid token
   useEffect(() => {
-    const existing = getCookie(AUTH_COOKIE_NAME);
-    console.log(
-      'Login mount, existing auth cookie:',
-      existing,
-      'document.cookie:',
-      typeof document !== 'undefined' ? document.cookie : 'no document'
-    );
-    if (existing === 'true') {
-      navigate('/', { replace: true });
-    }
+    const checkAuth = async () => {
+      const token = getAuthToken();
+      if (token) {
+        try {
+          const { data } = await supabase.functions.invoke('validate-token', {
+            body: { token },
+          });
+          if (data?.valid) {
+            navigate('/', { replace: true });
+          }
+        } catch (error) {
+          console.error('Token validation error:', error);
+        }
+      }
+    };
+    checkAuth();
   }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -46,13 +52,15 @@ const Login = () => {
 
       if (error) throw error;
 
-      if (data.success) {
-        setCookie(AUTH_COOKIE_NAME, 'true', AUTH_COOKIE_EXPIRY_DAYS);
-        console.log(
-          'Cookie set on login, document.cookie:',
-          typeof document !== 'undefined' ? document.cookie : 'no document'
-        );
+      if (data.success && data.token) {
+        setAuthToken(data.token);
         window.location.href = '/';
+      } else if (data.error) {
+        toast({ 
+          title: data.error, 
+          description: data.retryAfter ? `Try again in ${Math.ceil(data.retryAfter / 60)} minutes` : undefined,
+          variant: 'destructive' 
+        });
       } else {
         toast({ title: 'Invalid password', variant: 'destructive' });
       }
