@@ -1,20 +1,30 @@
+import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
+import { AUTH_COOKIE_NAME, getCookie } from '@/lib/cookies';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
-function getCookie(name: string): string | null {
-  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-  return match ? match[2] : null;
-}
-
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const cookieValue = getCookie('app_auth');
-  console.log('ProtectedRoute document.cookie:', document.cookie);
-  console.log('ProtectedRoute app_auth:', cookieValue);
+  const [isChecking, setIsChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
-  const isAuthenticated = cookieValue === 'true';
+  useEffect(() => {
+    const cookieValue = getCookie(AUTH_COOKIE_NAME);
+    console.log(
+      'ProtectedRoute check - document.cookie:',
+      typeof document !== 'undefined' ? document.cookie : 'no document'
+    );
+    console.log('ProtectedRoute check - app_auth:', cookieValue);
+
+    setIsAuthenticated(cookieValue === 'true');
+    setIsChecking(false);
+  }, []);
+
+  if (isChecking) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

@@ -7,19 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-
-const AUTH_COOKIE_NAME = 'app_auth';
-const COOKIE_EXPIRY_DAYS = 180;
-
-function getCookie(name: string): string | null {
-  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-  return match ? match[2] : null;
-}
-
-function setCookie(name: string, value: string, days: number) {
-  const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString();
-  document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Strict`;
-}
+import { AUTH_COOKIE_NAME, AUTH_COOKIE_EXPIRY_DAYS, getCookie, setCookie } from '@/lib/cookies';
 
 const Login = () => {
   const [password, setPassword] = useState('');
@@ -29,14 +17,21 @@ const Login = () => {
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (getCookie(AUTH_COOKIE_NAME) === 'true') {
+    const existing = getCookie(AUTH_COOKIE_NAME);
+    console.log(
+      'Login mount, existing auth cookie:',
+      existing,
+      'document.cookie:',
+      typeof document !== 'undefined' ? document.cookie : 'no document'
+    );
+    if (existing === 'true') {
       navigate('/', { replace: true });
     }
   }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!password.trim()) {
       toast({ title: 'Please enter password', variant: 'destructive' });
       return;
@@ -52,8 +47,11 @@ const Login = () => {
       if (error) throw error;
 
       if (data.success) {
-        setCookie(AUTH_COOKIE_NAME, 'true', COOKIE_EXPIRY_DAYS);
-        console.log('Cookie set, current document.cookie:', document.cookie);
+        setCookie(AUTH_COOKIE_NAME, 'true', AUTH_COOKIE_EXPIRY_DAYS);
+        console.log(
+          'Cookie set on login, document.cookie:',
+          typeof document !== 'undefined' ? document.cookie : 'no document'
+        );
         window.location.href = '/';
       } else {
         toast({ title: 'Invalid password', variant: 'destructive' });
