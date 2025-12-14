@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Copy, Check, ExternalLink, Clock } from "lucide-react";
+import { Copy, Check, ExternalLink, Clock, RotateCcw, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
+import { supabase } from "@/integrations/supabase/client";
 
 interface NewsCardProps {
   id: string;
@@ -13,10 +14,15 @@ interface NewsCardProps {
   responseText: string | null;
   publishedAt: string | null;
   processedAt: string;
+  webhookMode: 'production' | 'test';
+  onRetrySuccess?: () => void;
 }
 
-export function NewsCard({ title, link, responseText, publishedAt, processedAt }: NewsCardProps) {
+export function NewsCard({ id, title, link, responseText, publishedAt, processedAt, webhookMode, onRetrySuccess }: NewsCardProps) {
   const [copied, setCopied] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  
+  const hasError = responseText?.startsWith('Webhook error:');
 
   // Use published date if available, otherwise fall back to processed date
   const displayDate = publishedAt || processedAt;
@@ -33,6 +39,34 @@ export function NewsCard({ title, link, responseText, publishedAt, processedAt }
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       toast.error("Kopieren fehlgeschlagen");
+    }
+  };
+
+  const handleRetry = async () => {
+    setIsRetrying(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("check-rss", {
+        body: { 
+          webhookMode, 
+          retryItem: { id, link, title } 
+        }
+      });
+      
+      if (error) {
+        toast.error("Retry fehlgeschlagen");
+        console.error(error);
+      } else if (data.success) {
+        toast.success("Webhook erfolgreich wiederholt");
+        onRetrySuccess?.();
+      } else {
+        toast.error("Webhook erneut fehlgeschlagen");
+        onRetrySuccess?.();
+      }
+    } catch (err) {
+      toast.error("Verbindungsfehler");
+      console.error(err);
+    } finally {
+      setIsRetrying(false);
     }
   };
 
@@ -63,10 +97,36 @@ export function NewsCard({ title, link, responseText, publishedAt, processedAt }
       </CardHeader>
       <CardContent className="pt-0">
         {responseText && (
-          <div className="bg-muted rounded-lg p-4 mb-4">
-            <p className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
-              {responseText}
-            </p>
+          <div className={`rounded-lg p-4 mb-4 ${hasError ? 'bg-destructive/10 border border-destructive/20' : 'bg-muted'}`}>
+            {hasError && (
+              <div className="flex items-center gap-2 mb-2 text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="text-xs font-medium">Webhook Fehler</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-4">
+              <p className={`text-sm whitespace-pre-wrap font-mono leading-relaxed flex-1 ${hasError ? 'text-destructive' : 'text-foreground'}`}>
+                {responseText}
+              </p>
+              {hasError && (
+                <Button
+                  onClick={handleRetry}
+                  size="sm"
+                  variant="outline"
+                  disabled={isRetrying}
+                  className="shrink-0"
+                >
+                  {isRetrying ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <RotateCcw className="h-4 w-4 mr-1" />
+                      Retry
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
         )}
         <div className="flex items-center gap-2">
