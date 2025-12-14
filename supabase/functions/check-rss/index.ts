@@ -314,10 +314,12 @@ Deno.serve(async (req) => {
             } else {
               const errorBody = await webhookResponse.text();
               console.error('Webhook error:', webhookResponse.status, errorBody);
-              responseText = `Webhook error: ${webhookResponse.status}`;
+              console.log('Skipping database insert for failed item:', item.link);
+              // Don't store failed items - they will be retried on next run
+              continue;
             }
             
-            // Store in database with published_at from RSS
+            // Only store successful items in database
             const publishedAt = item.pubDate ? new Date(item.pubDate).toISOString() : null;
             
             const { error: insertError } = await supabase
