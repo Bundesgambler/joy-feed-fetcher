@@ -268,6 +268,8 @@ const Index = () => {
                   responseText={item.response_text}
                   publishedAt={item.published_at}
                   processedAt={item.processed_at}
+                  webhookMode={webhookMode}
+                  onRetrySuccess={refetch}
                 />
               </div>
             ))}

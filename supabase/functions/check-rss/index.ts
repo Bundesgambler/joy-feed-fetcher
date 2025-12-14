@@ -91,6 +91,7 @@ Deno.serve(async (req) => {
     // Parse request body to get webhook mode and sources
     let webhookMode = 'production';
     let enabledSources: SourceKey[] = ['nius', 'jungefreiheit']; // Default: all enabled
+    let retryItem: { id: string; link: string; title: string | null } | null = null;
     
     try {
       const body = await req.json();
@@ -100,12 +101,97 @@ Deno.serve(async (req) => {
       if (Array.isArray(body.sources) && body.sources.length > 0) {
         enabledSources = body.sources.filter((s: string) => s in RSS_SOURCES) as SourceKey[];
       }
+      if (body.retryItem) {
+        retryItem = body.retryItem;
+      }
     } catch {
       // No body or invalid JSON, use defaults
     }
     
     const WEBHOOK_URL = webhookMode === 'test' ? WEBHOOK_URL_TEST : WEBHOOK_URL_PRODUCTION;
     console.log(`Using ${webhookMode} webhook:`, WEBHOOK_URL);
+    
+    // Handle retry for a single item
+    if (retryItem) {
+      console.log('Retrying webhook for item:', retryItem.link);
+      
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabase = createClient(supabaseUrl, supabaseKey);
+      
+      try {
+        const webhookResponse = await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
+          },
+          body: JSON.stringify({
+            link: retryItem.link,
+            title: retryItem.title,
+            source: 'Retry',
+            timestamp: new Date().toISOString()
+          })
+        });
+        
+        let responseText = '';
+        
+        if (webhookResponse.ok) {
+          const rawResponse = await webhookResponse.text();
+          console.log('Retry webhook raw response:', rawResponse.substring(0, 100));
+          
+          try {
+            const jsonResponse = JSON.parse(rawResponse);
+            if (Array.isArray(jsonResponse) && jsonResponse.length > 0 && jsonResponse[0].output) {
+              responseText = jsonResponse[0].output;
+            } else if (jsonResponse.output) {
+              responseText = jsonResponse.output;
+            } else {
+              responseText = rawResponse;
+            }
+          } catch {
+            responseText = rawResponse;
+          }
+        } else {
+          const errorBody = await webhookResponse.text();
+          console.error('Retry webhook error:', webhookResponse.status, errorBody);
+          responseText = `Webhook error: ${webhookResponse.status}`;
+        }
+        
+        // Update the item in database
+        const { error: updateError } = await supabase
+          .from('news_items')
+          .update({
+            response_text: responseText,
+            processed_at: new Date().toISOString()
+          })
+          .eq('id', retryItem.id);
+        
+        if (updateError) {
+          console.error('Error updating item:', updateError);
+          throw updateError;
+        }
+        
+        const isError = responseText.startsWith('Webhook error:');
+        
+        return new Response(
+          JSON.stringify({ 
+            success: !isError, 
+            message: isError ? 'Retry failed' : 'Retry successful',
+            response_text: responseText
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+        
+      } catch (retryError) {
+        console.error('Error during retry:', retryError);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Retry failed' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+    
     console.log('Enabled sources:', enabledSources.map(s => RSS_SOURCES[s].name).join(', '));
 
     // Check if we're within operating hours (7:00 - 20:00 German time)
