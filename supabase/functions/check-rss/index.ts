@@ -17,6 +17,10 @@ const RSS_SOURCES = {
   apollonews: {
     name: 'Apollo News',
     url: 'https://apollo-news.net/feed/'
+  },
+  freilichmagazin: {
+    name: 'Freilich Magazin',
+    url: 'https://freilich-magazin.com/rss.xml'
   }
 } as const;
 
@@ -94,7 +98,7 @@ Deno.serve(async (req) => {
   try {
     // Parse request body to get webhook mode and sources
     let webhookMode = 'production';
-    let enabledSources: SourceKey[] = ['nius', 'jungefreiheit', 'apollonews']; // Default: all enabled
+    let enabledSources: SourceKey[] = ['nius', 'jungefreiheit', 'apollonews', 'freilichmagazin']; // Default: all enabled
     let retryItem: { id: string; link: string; title: string | null } | null = null;
     
     try {

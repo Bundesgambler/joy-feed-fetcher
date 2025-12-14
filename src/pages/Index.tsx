@@ -29,7 +29,8 @@ import {
 const RSS_SOURCES = {
   nius: { name: 'NIUS', url: 'nius.de/rss' },
   jungefreiheit: { name: 'Junge Freiheit', url: 'jungefreiheit.de/feed' },
-  apollonews: { name: 'Apollo News', url: 'apollo-news.net/feed' }
+  apollonews: { name: 'Apollo News', url: 'apollo-news.net/feed' },
+  freilichmagazin: { name: 'Freilich Magazin', url: 'freilich-magazin.com/rss.xml' }
 } as const;
 
 type SourceKey = keyof typeof RSS_SOURCES;
@@ -46,7 +47,7 @@ const Index = () => {
   const [isCleaning, setIsCleaning] = useState(false);
   const [isActive, setIsActive] = useState(isWithinOperatingHours());
   const [webhookMode, setWebhookMode] = useState<'production' | 'test'>('production');
-  const [enabledSources, setEnabledSources] = useState<SourceKey[]>(['nius', 'jungefreiheit', 'apollonews']);
+  const [enabledSources, setEnabledSources] = useState<SourceKey[]>(['nius', 'jungefreiheit', 'apollonews', 'freilichmagazin']);
   const [isMonitoringOn, setIsMonitoringOn] = useState(true);
 
   useEffect(() => {
