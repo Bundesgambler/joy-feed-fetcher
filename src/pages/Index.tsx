@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { RefreshCw, Rss, Loader2, Trash2 } from "lucide-react";
+import { RefreshCw, Rss, Loader2, Trash2, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NewsCard } from "@/components/NewsCard";
 import { StatusIndicator } from "@/components/StatusIndicator";
@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +20,18 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+const RSS_SOURCES = {
+  nius: { name: 'NIUS', url: 'nius.de/rss' },
+  jungefreiheit: { name: 'Junge Freiheit', url: 'jungefreiheit.de/feed' }
+} as const;
+
+type SourceKey = keyof typeof RSS_SOURCES;
 
 function isWithinOperatingHours(): boolean {
   const now = new Date();
@@ -32,6 +45,7 @@ const Index = () => {
   const [isCleaning, setIsCleaning] = useState(false);
   const [isActive, setIsActive] = useState(isWithinOperatingHours());
   const [webhookMode, setWebhookMode] = useState<'production' | 'test'>('production');
+  const [enabledSources, setEnabledSources] = useState<SourceKey[]>(['nius', 'jungefreiheit']);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -41,17 +55,23 @@ const Index = () => {
   }, []);
 
   const handleManualCheck = async () => {
+    if (enabledSources.length === 0) {
+      toast.error("Bitte mindestens eine Quelle aktivieren");
+      return;
+    }
+    
     setIsChecking(true);
     try {
       const { data, error } = await supabase.functions.invoke("check-rss", {
-        body: { webhookMode }
+        body: { webhookMode, sources: enabledSources }
       });
       
       if (error) {
         toast.error("Fehler beim Prüfen des RSS-Feeds");
         console.error(error);
       } else {
-        toast.success(`${data.processed} neue Artikel verarbeitet (${webhookMode === 'test' ? 'Test' : 'Produktion'})`);
+        const sourcesText = enabledSources.map(s => RSS_SOURCES[s].name).join(' + ');
+        toast.success(`${data.processed} neue Artikel verarbeitet (${sourcesText}, ${webhookMode === 'test' ? 'Test' : 'Prod'})`);
         refetch();
       }
     } catch (err) {
@@ -60,6 +80,14 @@ const Index = () => {
     } finally {
       setIsChecking(false);
     }
+  };
+
+  const toggleSource = (source: SourceKey) => {
+    setEnabledSources(prev => 
+      prev.includes(source) 
+        ? prev.filter(s => s !== source)
+        : [...prev, source]
+    );
   };
 
   const handleCleanup = async () => {
@@ -96,25 +124,62 @@ const Index = () => {
                 <Rss className="h-5 w-5 text-primary-foreground" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-foreground">NIUS Monitor</h1>
-                <p className="text-xs text-muted-foreground">nius.de/rss → n8n Webhook</p>
+                <h1 className="text-xl font-bold text-foreground">News Monitor</h1>
+                <p className="text-xs text-muted-foreground">
+                  {enabledSources.map(s => RSS_SOURCES[s].name).join(' + ') || 'Keine Quellen'} → n8n
+                </p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="webhook-mode"
-                  checked={webhookMode === 'test'}
-                  onCheckedChange={(checked) => setWebhookMode(checked ? 'test' : 'production')}
-                />
-                <Label htmlFor="webhook-mode" className="text-sm font-medium cursor-pointer">
-                  {webhookMode === 'test' ? (
-                    <span className="text-yellow-600 dark:text-yellow-400">Test</span>
-                  ) : (
-                    <span className="text-green-600 dark:text-green-400">Prod</span>
-                  )}
-                </Label>
-              </div>
+            <div className="flex items-center gap-3">
+              {/* Sources Settings */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="icon">
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64" align="end">
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-medium text-sm mb-2">RSS Quellen</h4>
+                      <div className="space-y-2">
+                        {(Object.keys(RSS_SOURCES) as SourceKey[]).map((key) => (
+                          <div key={key} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`source-${key}`}
+                              checked={enabledSources.includes(key)}
+                              onCheckedChange={() => toggleSource(key)}
+                            />
+                            <Label htmlFor={`source-${key}`} className="text-sm cursor-pointer">
+                              {RSS_SOURCES[key].name}
+                              <span className="block text-xs text-muted-foreground">
+                                {RSS_SOURCES[key].url}
+                              </span>
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="border-t pt-3">
+                      <h4 className="font-medium text-sm mb-2">Webhook</h4>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="webhook-mode-popover"
+                          checked={webhookMode === 'test'}
+                          onCheckedChange={(checked) => setWebhookMode(checked ? 'test' : 'production')}
+                        />
+                        <Label htmlFor="webhook-mode-popover" className="text-sm cursor-pointer">
+                          {webhookMode === 'test' ? (
+                            <span className="text-yellow-600 dark:text-yellow-400">Test Mode</span>
+                          ) : (
+                            <span className="text-green-600 dark:text-green-400">Production</span>
+                          )}
+                        </Label>
+                      </div>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
               <StatusIndicator isActive={isActive} />
             </div>
           </div>
