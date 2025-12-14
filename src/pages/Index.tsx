@@ -28,7 +28,8 @@ import {
 
 const RSS_SOURCES = {
   nius: { name: 'NIUS', url: 'nius.de/rss' },
-  jungefreiheit: { name: 'Junge Freiheit', url: 'jungefreiheit.de/feed' }
+  jungefreiheit: { name: 'Junge Freiheit', url: 'jungefreiheit.de/feed' },
+  apollonews: { name: 'Apollo News', url: 'apollo-news.net/feed' }
 } as const;
 
 type SourceKey = keyof typeof RSS_SOURCES;
@@ -45,7 +46,8 @@ const Index = () => {
   const [isCleaning, setIsCleaning] = useState(false);
   const [isActive, setIsActive] = useState(isWithinOperatingHours());
   const [webhookMode, setWebhookMode] = useState<'production' | 'test'>('production');
-  const [enabledSources, setEnabledSources] = useState<SourceKey[]>(['nius', 'jungefreiheit']);
+  const [enabledSources, setEnabledSources] = useState<SourceKey[]>(['nius', 'jungefreiheit', 'apollonews']);
+  const [isMonitoringOn, setIsMonitoringOn] = useState(true);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -177,10 +179,30 @@ const Index = () => {
                         </Label>
                       </div>
                     </div>
+                    <div className="border-t pt-3">
+                      <h4 className="font-medium text-sm mb-2">Monitoring</h4>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="monitoring-switch"
+                          checked={isMonitoringOn}
+                          onCheckedChange={setIsMonitoringOn}
+                        />
+                        <Label htmlFor="monitoring-switch" className="text-sm cursor-pointer">
+                          {isMonitoringOn ? (
+                            <span className="text-green-600 dark:text-green-400">Aktiv (ON)</span>
+                          ) : (
+                            <span className="text-red-600 dark:text-red-400">Pausiert (OFF)</span>
+                          )}
+                        </Label>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {isMonitoringOn ? 'Läuft zwischen 7:00-20:00 Uhr' : 'Automatische Prüfung deaktiviert'}
+                      </p>
+                    </div>
                   </div>
                 </PopoverContent>
               </Popover>
-              <StatusIndicator isActive={isActive} />
+              <StatusIndicator isActive={isActive && isMonitoringOn} />
             </div>
           </div>
         </div>
