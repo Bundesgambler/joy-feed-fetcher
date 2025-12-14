@@ -5,7 +5,19 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const RSS_URL = 'https://nius.de/rss'
+const RSS_SOURCES = {
+  nius: {
+    name: 'NIUS',
+    url: 'https://nius.de/rss'
+  },
+  jungefreiheit: {
+    name: 'Junge Freiheit',
+    url: 'https://jungefreiheit.de/feed/'
+  }
+} as const;
+
+type SourceKey = keyof typeof RSS_SOURCES;
+
 const WEBHOOK_URL_PRODUCTION = 'https://n8n.mariohau.de/webhook/0d0e30a1-bd1a-4f86-b3af-25040c575a7e'
 const WEBHOOK_URL_TEST = 'https://n8n.mariohau.de/webhook-test/0d0e30a1-bd1a-4f86-b3af-25040c575a7e'
 
@@ -76,19 +88,25 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Parse request body to get webhook mode
+    // Parse request body to get webhook mode and sources
     let webhookMode = 'production';
+    let enabledSources: SourceKey[] = ['nius', 'jungefreiheit']; // Default: all enabled
+    
     try {
       const body = await req.json();
       if (body.webhookMode === 'test') {
         webhookMode = 'test';
       }
+      if (Array.isArray(body.sources) && body.sources.length > 0) {
+        enabledSources = body.sources.filter((s: string) => s in RSS_SOURCES) as SourceKey[];
+      }
     } catch {
-      // No body or invalid JSON, use default
+      // No body or invalid JSON, use defaults
     }
     
     const WEBHOOK_URL = webhookMode === 'test' ? WEBHOOK_URL_TEST : WEBHOOK_URL_PRODUCTION;
     console.log(`Using ${webhookMode} webhook:`, WEBHOOK_URL);
+    console.log('Enabled sources:', enabledSources.map(s => RSS_SOURCES[s].name).join(', '));
 
     // Check if we're within operating hours (7:00 - 20:00 German time)
     if (!isWithinOperatingHours()) {
@@ -104,34 +122,6 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log('Fetching RSS feed from:', RSS_URL);
-    
-    // Fetch RSS feed
-    const rssResponse = await fetch(RSS_URL, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RSSReader/1.0)',
-        'Accept': 'application/rss+xml, application/xml, text/xml, */*'
-      }
-    });
-    
-    if (!rssResponse.ok) {
-      throw new Error(`Failed to fetch RSS: ${rssResponse.status} ${rssResponse.statusText}`);
-    }
-    
-    const rssText = await rssResponse.text();
-    console.log('RSS feed fetched, length:', rssText.length);
-    
-    // Parse RSS items
-    const rssItems = parseRSS(rssText);
-    console.log('Parsed RSS items:', rssItems.length);
-    
-    if (rssItems.length === 0) {
-      return new Response(
-        JSON.stringify({ success: true, message: 'No items found in RSS feed', processed: 0 }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-    
     // Get existing links from database
     const { data: existingItems, error: fetchError } = await supabase
       .from('news_items')
@@ -144,98 +134,146 @@ Deno.serve(async (req) => {
     
     const existingLinks = new Set(existingItems?.map(item => item.link) || []);
     console.log('Existing items in database:', existingLinks.size);
-    
-    // Filter new items that are within 12 hours
-    const newItems = rssItems.filter(item => 
-      !existingLinks.has(item.link) && isArticleWithin12Hours(item.pubDate)
-    );
-    console.log('New items to process (within 12 hours):', newItems.length);
-    
-    let processedCount = 0;
-    
-    // Process each new item
-    for (const item of newItems) {
+
+    let totalProcessed = 0;
+    let totalInFeed = 0;
+    const sourceResults: Record<string, { processed: number; total: number }> = {};
+
+    // Process each enabled source
+    for (const sourceKey of enabledSources) {
+      const source = RSS_SOURCES[sourceKey];
+      console.log(`\n--- Processing source: ${source.name} ---`);
+      console.log('Fetching RSS feed from:', source.url);
+      
       try {
-        console.log('Processing item:', item.link);
-        
-        // Send link to webhook
-        console.log('Calling webhook:', WEBHOOK_URL);
-        const webhookResponse = await fetch(WEBHOOK_URL, {
-          method: 'POST',
+        // Fetch RSS feed
+        const rssResponse = await fetch(source.url, {
           headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json, text/plain, */*',
-          },
-          body: JSON.stringify({
-            link: item.link,
-            title: item.title,
-            timestamp: new Date().toISOString()
-          })
+            'User-Agent': 'Mozilla/5.0 (compatible; RSSReader/1.0)',
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+          }
         });
         
-        console.log('Webhook response status:', webhookResponse.status);
+        if (!rssResponse.ok) {
+          console.error(`Failed to fetch ${source.name} RSS: ${rssResponse.status} ${rssResponse.statusText}`);
+          sourceResults[sourceKey] = { processed: 0, total: 0 };
+          continue;
+        }
         
-        let responseText = '';
+        const rssText = await rssResponse.text();
+        console.log('RSS feed fetched, length:', rssText.length);
         
-        if (webhookResponse.ok) {
-          const rawResponse = await webhookResponse.text();
-          console.log('Webhook raw response for', item.link, ':', rawResponse.substring(0, 100));
-          
-          // Parse JSON and extract the "output" field
+        // Parse RSS items
+        const rssItems = parseRSS(rssText);
+        console.log('Parsed RSS items:', rssItems.length);
+        totalInFeed += rssItems.length;
+        
+        if (rssItems.length === 0) {
+          sourceResults[sourceKey] = { processed: 0, total: 0 };
+          continue;
+        }
+        
+        // Filter new items that are within 12 hours
+        const newItems = rssItems.filter(item => 
+          !existingLinks.has(item.link) && isArticleWithin12Hours(item.pubDate)
+        );
+        console.log('New items to process (within 12 hours):', newItems.length);
+        
+        let processedCount = 0;
+        
+        // Process each new item
+        for (const item of newItems) {
           try {
-            const jsonResponse = JSON.parse(rawResponse);
-            // Handle both array format [{"output": "..."}] and object format {"output": "..."}
-            if (Array.isArray(jsonResponse) && jsonResponse.length > 0 && jsonResponse[0].output) {
-              responseText = jsonResponse[0].output;
-            } else if (jsonResponse.output) {
-              responseText = jsonResponse.output;
+            console.log('Processing item:', item.link);
+            
+            // Send link to webhook
+            console.log('Calling webhook:', WEBHOOK_URL);
+            const webhookResponse = await fetch(WEBHOOK_URL, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/plain, */*',
+              },
+              body: JSON.stringify({
+                link: item.link,
+                title: item.title,
+                source: source.name,
+                timestamp: new Date().toISOString()
+              })
+            });
+            
+            console.log('Webhook response status:', webhookResponse.status);
+            
+            let responseText = '';
+            
+            if (webhookResponse.ok) {
+              const rawResponse = await webhookResponse.text();
+              console.log('Webhook raw response for', item.link, ':', rawResponse.substring(0, 100));
+              
+              // Parse JSON and extract the "output" field
+              try {
+                const jsonResponse = JSON.parse(rawResponse);
+                if (Array.isArray(jsonResponse) && jsonResponse.length > 0 && jsonResponse[0].output) {
+                  responseText = jsonResponse[0].output;
+                } else if (jsonResponse.output) {
+                  responseText = jsonResponse.output;
+                } else {
+                  responseText = rawResponse;
+                }
+              } catch {
+                responseText = rawResponse;
+              }
+              
+              console.log('Extracted text:', responseText.substring(0, 100));
             } else {
-              responseText = rawResponse; // Fallback to raw response
+              const errorBody = await webhookResponse.text();
+              console.error('Webhook error:', webhookResponse.status, errorBody);
+              responseText = `Webhook error: ${webhookResponse.status}`;
             }
-          } catch {
-            responseText = rawResponse; // If not JSON, use raw response
+            
+            // Store in database with published_at from RSS
+            const publishedAt = item.pubDate ? new Date(item.pubDate).toISOString() : null;
+            
+            const { error: insertError } = await supabase
+              .from('news_items')
+              .insert({
+                link: item.link,
+                title: item.title,
+                response_text: responseText,
+                processed_at: new Date().toISOString(),
+                published_at: publishedAt
+              });
+            
+            if (insertError) {
+              console.error('Error inserting item:', insertError);
+            } else {
+              processedCount++;
+              existingLinks.add(item.link); // Prevent duplicates across sources
+            }
+            
+          } catch (itemError) {
+            console.error('Error processing item:', item.link, itemError);
           }
-          
-          console.log('Extracted text:', responseText.substring(0, 100));
-        } else {
-          const errorBody = await webhookResponse.text();
-          console.error('Webhook error:', webhookResponse.status, errorBody);
-          responseText = `Webhook error: ${webhookResponse.status}`;
         }
         
-        // Store in database with published_at from RSS
-        const publishedAt = item.pubDate ? new Date(item.pubDate).toISOString() : null;
+        sourceResults[sourceKey] = { processed: processedCount, total: rssItems.length };
+        totalProcessed += processedCount;
         
-        const { error: insertError } = await supabase
-          .from('news_items')
-          .insert({
-            link: item.link,
-            title: item.title,
-            response_text: responseText,
-            processed_at: new Date().toISOString(),
-            published_at: publishedAt
-          });
-        
-        if (insertError) {
-          console.error('Error inserting item:', insertError);
-          // Continue with next item even if insert fails
-        } else {
-          processedCount++;
-        }
-        
-      } catch (itemError) {
-        console.error('Error processing item:', item.link, itemError);
+      } catch (sourceError) {
+        console.error(`Error processing source ${source.name}:`, sourceError);
+        sourceResults[sourceKey] = { processed: 0, total: 0 };
       }
     }
     
-    console.log('Processing complete. Processed:', processedCount);
+    console.log('\nProcessing complete. Total processed:', totalProcessed);
     
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Processed ${processedCount} new items`,
-        processed: processedCount,
-        total_in_feed: rssItems.length
+        message: `Processed ${totalProcessed} new items`,
+        processed: totalProcessed,
+        total_in_feed: totalInFeed,
+        sources: sourceResults
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
