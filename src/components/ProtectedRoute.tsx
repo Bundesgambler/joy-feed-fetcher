@@ -10,7 +10,11 @@ function getCookie(name: string): string | null {
 }
 
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const isAuthenticated = getCookie('app_auth') === 'true';
+  const cookieValue = getCookie('app_auth');
+  console.log('ProtectedRoute document.cookie:', document.cookie);
+  console.log('ProtectedRoute app_auth:', cookieValue);
+
+  const isAuthenticated = cookieValue === 'true';
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
