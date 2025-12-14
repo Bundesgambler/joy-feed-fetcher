@@ -95,17 +95,18 @@ const Index = () => {
   const handleCleanup = async () => {
     setIsCleaning(true);
     try {
-      const { error } = await supabase
-        .from("news_items")
-        .delete()
-        .neq("id", "00000000-0000-0000-0000-000000000000"); // Delete all rows
+      const { data, error } = await supabase.functions.invoke("delete-news", {
+        body: { deleteAll: true }
+      });
       
       if (error) {
         toast.error("Fehler beim Löschen");
         console.error(error);
-      } else {
+      } else if (data?.success) {
         toast.success("Alle Artikel gelöscht");
         refetch();
+      } else {
+        toast.error("Fehler beim Löschen");
       }
     } catch (err) {
       toast.error("Verbindungsfehler");
