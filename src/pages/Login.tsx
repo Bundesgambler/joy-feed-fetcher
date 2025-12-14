@@ -53,6 +53,7 @@ const Login = () => {
 
       if (data.success) {
         setCookie(AUTH_COOKIE_NAME, 'true', COOKIE_EXPIRY_DAYS);
+        console.log('Cookie set, current document.cookie:', document.cookie);
         window.location.href = '/';
       } else {
         toast({ title: 'Invalid password', variant: 'destructive' });
