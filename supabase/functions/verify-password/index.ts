@@ -125,7 +125,8 @@ serve(async (req) => {
       );
     }
 
-    const { password } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const password = typeof (body as any).password === 'string' ? (body as any).password : '';
     const appPassword = Deno.env.get('APP_PASSWORD');
     const jwtSecret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'); // Use service role key as signing secret
 
@@ -137,7 +138,7 @@ serve(async (req) => {
       });
     }
 
-    const isValid = password === appPassword;
+    const isValid = password.trim() === appPassword.trim();
     
     // Record the attempt for rate limiting
     recordAttempt(clientIP, isValid);
