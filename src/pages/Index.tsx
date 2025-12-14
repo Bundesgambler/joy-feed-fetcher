@@ -6,6 +6,8 @@ import { StatusIndicator } from "@/components/StatusIndicator";
 import { useNewsItems } from "@/hooks/useNewsItems";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +31,7 @@ const Index = () => {
   const [isChecking, setIsChecking] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [isActive, setIsActive] = useState(isWithinOperatingHours());
+  const [webhookMode, setWebhookMode] = useState<'production' | 'test'>('production');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -40,13 +43,15 @@ const Index = () => {
   const handleManualCheck = async () => {
     setIsChecking(true);
     try {
-      const { data, error } = await supabase.functions.invoke("check-rss");
+      const { data, error } = await supabase.functions.invoke("check-rss", {
+        body: { webhookMode }
+      });
       
       if (error) {
         toast.error("Fehler beim Prüfen des RSS-Feeds");
         console.error(error);
       } else {
-        toast.success(`${data.processed} neue Artikel verarbeitet`);
+        toast.success(`${data.processed} neue Artikel verarbeitet (${webhookMode === 'test' ? 'Test' : 'Produktion'})`);
         refetch();
       }
     } catch (err) {
@@ -95,7 +100,23 @@ const Index = () => {
                 <p className="text-xs text-muted-foreground">nius.de/rss → n8n Webhook</p>
               </div>
             </div>
-            <StatusIndicator isActive={isActive} />
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="webhook-mode"
+                  checked={webhookMode === 'test'}
+                  onCheckedChange={(checked) => setWebhookMode(checked ? 'test' : 'production')}
+                />
+                <Label htmlFor="webhook-mode" className="text-sm font-medium cursor-pointer">
+                  {webhookMode === 'test' ? (
+                    <span className="text-yellow-600 dark:text-yellow-400">Test</span>
+                  ) : (
+                    <span className="text-green-600 dark:text-green-400">Prod</span>
+                  )}
+                </Label>
+              </div>
+              <StatusIndicator isActive={isActive} />
+            </div>
           </div>
         </div>
       </header>
