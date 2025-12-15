@@ -29,6 +29,10 @@ type SourceKey = keyof typeof RSS_SOURCES;
 const WEBHOOK_URL_PRODUCTION = 'https://n8n.mariohau.de/webhook/0d0e30a1-bd1a-4f86-b3af-25040c575a7e'
 const WEBHOOK_URL_TEST = 'https://n8n.mariohau.de/webhook-test/0d0e30a1-bd1a-4f86-b3af-25040c575a7e'
 
+// Microsoft Teams webhook URLs
+const TEAMS_WEBHOOK_PRODUCTION = 'https://scintilla.app.n8n.cloud/webhook/c051dac1-1988-463f-a983-25b925138e8e'
+const TEAMS_WEBHOOK_TEST = 'https://scintilla.app.n8n.cloud/webhook-test/c051dac1-1988-463f-a983-25b925138e8e'
+
 interface RSSItem {
   title: string;
   link: string;
@@ -100,6 +104,8 @@ Deno.serve(async (req) => {
     let webhookMode = 'production';
     let enabledSources: SourceKey[] = ['nius', 'jungefreiheit', 'apollonews', 'freilichmagazin']; // Default: all enabled
     let retryItem: { id: string; link: string; title: string | null } | null = null;
+    let teamsEnabled = false;
+    let teamsMode = 'production';
     
     try {
       const body = await req.json();
@@ -112,12 +118,20 @@ Deno.serve(async (req) => {
       if (body.retryItem) {
         retryItem = body.retryItem;
       }
+      if (body.teamsEnabled === true) {
+        teamsEnabled = true;
+      }
+      if (body.teamsMode === 'test') {
+        teamsMode = 'test';
+      }
     } catch {
       // No body or invalid JSON, use defaults
     }
     
     const WEBHOOK_URL = webhookMode === 'test' ? WEBHOOK_URL_TEST : WEBHOOK_URL_PRODUCTION;
+    const TEAMS_WEBHOOK_URL = teamsMode === 'test' ? TEAMS_WEBHOOK_TEST : TEAMS_WEBHOOK_PRODUCTION;
     console.log(`Using ${webhookMode} webhook:`, WEBHOOK_URL);
+    console.log(`Teams enabled: ${teamsEnabled}, mode: ${teamsMode}, URL:`, teamsEnabled ? TEAMS_WEBHOOK_URL : 'disabled');
     
     // Handle retry for a single item
     if (retryItem) {
@@ -325,6 +339,34 @@ Deno.serve(async (req) => {
               console.log('Skipping database insert for failed item:', item.link);
               // Don't store failed items - they will be retried on next run
               continue;
+            }
+            
+            // Send to Microsoft Teams webhook if enabled
+            if (teamsEnabled) {
+              console.log('Sending to Teams webhook:', TEAMS_WEBHOOK_URL);
+              try {
+                const teamsResponse = await fetch(TEAMS_WEBHOOK_URL, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json, text/plain, */*',
+                  },
+                  body: JSON.stringify({
+                    link: item.link,
+                    title: item.title,
+                    source: source.name,
+                    responseText: responseText,
+                    timestamp: new Date().toISOString()
+                  })
+                });
+                console.log('Teams webhook response status:', teamsResponse.status);
+                if (!teamsResponse.ok) {
+                  const teamsError = await teamsResponse.text();
+                  console.error('Teams webhook error:', teamsResponse.status, teamsError);
+                }
+              } catch (teamsError) {
+                console.error('Error sending to Teams:', teamsError);
+              }
             }
             
             // Only store successful items in database

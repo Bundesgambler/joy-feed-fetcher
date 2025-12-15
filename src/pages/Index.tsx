@@ -49,6 +49,8 @@ const Index = () => {
   const [webhookMode, setWebhookMode] = useState<'production' | 'test'>('production');
   const [enabledSources, setEnabledSources] = useState<SourceKey[]>(['nius', 'jungefreiheit', 'apollonews', 'freilichmagazin']);
   const [isMonitoringOn, setIsMonitoringOn] = useState(true);
+  const [teamsEnabled, setTeamsEnabled] = useState(false);
+  const [teamsMode, setTeamsMode] = useState<'production' | 'test'>('production');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -66,7 +68,7 @@ const Index = () => {
     setIsChecking(true);
     try {
       const { data, error } = await supabase.functions.invoke("check-rss", {
-        body: { webhookMode, sources: enabledSources }
+        body: { webhookMode, sources: enabledSources, teamsEnabled, teamsMode }
       });
       
       if (error) {
@@ -180,6 +182,39 @@ const Index = () => {
                           )}
                         </Label>
                       </div>
+                    </div>
+                    <div className="border-t pt-3">
+                      <h4 className="font-medium text-sm mb-2">Microsoft Teams</h4>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Switch
+                          id="teams-enabled"
+                          checked={teamsEnabled}
+                          onCheckedChange={setTeamsEnabled}
+                        />
+                        <Label htmlFor="teams-enabled" className="text-sm cursor-pointer">
+                          {teamsEnabled ? (
+                            <span className="text-green-600 dark:text-green-400">Aktiviert (ON)</span>
+                          ) : (
+                            <span className="text-muted-foreground">Deaktiviert (OFF)</span>
+                          )}
+                        </Label>
+                      </div>
+                      {teamsEnabled && (
+                        <div className="flex items-center gap-2 ml-6">
+                          <Switch
+                            id="teams-mode"
+                            checked={teamsMode === 'test'}
+                            onCheckedChange={(checked) => setTeamsMode(checked ? 'test' : 'production')}
+                          />
+                          <Label htmlFor="teams-mode" className="text-sm cursor-pointer">
+                            {teamsMode === 'test' ? (
+                              <span className="text-yellow-600 dark:text-yellow-400">Test</span>
+                            ) : (
+                              <span className="text-green-600 dark:text-green-400">Production</span>
+                            )}
+                          </Label>
+                        </div>
+                      )}
                     </div>
                     <div className="border-t pt-3">
                       <h4 className="font-medium text-sm mb-2">Monitoring</h4>
