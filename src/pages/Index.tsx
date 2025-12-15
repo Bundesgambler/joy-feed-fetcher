@@ -49,7 +49,7 @@ const Index = () => {
   const [webhookMode, setWebhookMode] = useState<'production' | 'test'>('production');
   const [enabledSources, setEnabledSources] = useState<SourceKey[]>(['nius', 'jungefreiheit', 'apollonews', 'freilichmagazin']);
   const [isMonitoringOn, setIsMonitoringOn] = useState(true);
-  const [teamsEnabled, setTeamsEnabled] = useState(false);
+  const [teamsEnabled, setTeamsEnabled] = useState(true);
   const [teamsMode, setTeamsMode] = useState<'production' | 'test'>('production');
 
   useEffect(() => {
