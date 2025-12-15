@@ -29,5 +29,9 @@ export function useNewsItems() {
       return data as NewsItem[];
     },
     refetchInterval: 60000, // Refetch every minute
+    staleTime: 0, // Always consider data stale
+    gcTime: 0, // Don't cache (was cacheTime in older versions)
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
   });
 }
