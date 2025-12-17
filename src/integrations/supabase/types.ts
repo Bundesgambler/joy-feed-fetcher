@@ -44,6 +44,39 @@ export type Database = {
         }
         Relationships: []
       }
+      rss_runs: {
+        Row: {
+          error: string | null
+          finished_at: string | null
+          id: string
+          message: string | null
+          processed: number
+          started_at: string
+          success: boolean
+          trigger: string
+        }
+        Insert: {
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          message?: string | null
+          processed?: number
+          started_at?: string
+          success?: boolean
+          trigger?: string
+        }
+        Update: {
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          message?: string | null
+          processed?: number
+          started_at?: string
+          success?: boolean
+          trigger?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
