@@ -44,10 +44,12 @@ type RssRunRow = {
   message: string | null;
   error: string | null;
 };
+
+const isWithinOperatingHours = () => {
   const now = new Date();
   const hour = now.getHours();
   return hour >= 7 && hour < 20;
-}
+};
 
 const Index = () => {
   const { data: newsItems, isLoading, refetch } = useNewsItems();
