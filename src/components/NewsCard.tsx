@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
+import { getAuthToken } from "@/lib/cookies";
 
 interface NewsCardProps {
   id: string;
@@ -45,11 +46,13 @@ export function NewsCard({ id, title, link, responseText, publishedAt, processed
   const handleRetry = async () => {
     setIsRetrying(true);
     try {
+      const token = getAuthToken();
       const { data, error } = await supabase.functions.invoke("check-rss", {
         body: { 
           webhookMode, 
           retryItem: { id, link, title } 
-        }
+        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       
       if (error) {

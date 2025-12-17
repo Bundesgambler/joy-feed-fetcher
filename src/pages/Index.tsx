@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { getAuthToken } from "@/lib/cookies";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
@@ -67,8 +68,10 @@ const Index = () => {
     
     setIsChecking(true);
     try {
+      const token = getAuthToken();
       const { data, error } = await supabase.functions.invoke("check-rss", {
-        body: { webhookMode, sources: enabledSources, teamsEnabled, teamsMode }
+        body: { webhookMode, sources: enabledSources, teamsEnabled, teamsMode },
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       
       if (error) {
@@ -98,8 +101,10 @@ const Index = () => {
   const handleCleanup = async () => {
     setIsCleaning(true);
     try {
+      const token = getAuthToken();
       const { data, error } = await supabase.functions.invoke("delete-news", {
-        body: { deleteAll: true }
+        body: { deleteAll: true },
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       
       if (error) {
