@@ -153,37 +153,48 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Authenticate the request
+    // Authenticate the request - accept either custom JWT token or cron secret
     const authHeader = req.headers.get('authorization');
-    if (!authHeader) {
-      console.log('No authorization header provided');
-      return new Response(
-        JSON.stringify({ success: false, error: 'Authentication required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const jwtSecret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const cronSecret = req.headers.get('x-cron-secret');
+    const expectedCronSecret = Deno.env.get('CRON_SECRET');
     
-    if (!jwtSecret) {
-      console.error('SUPABASE_SERVICE_ROLE_KEY not configured');
-      return new Response(
-        JSON.stringify({ success: false, error: 'Server configuration error' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Check if this is a cron call with the correct secret
+    const isCronCall = cronSecret && expectedCronSecret && cronSecret === expectedCronSecret;
+    
+    if (!isCronCall) {
+      // Not a cron call, require JWT authentication
+      if (!authHeader) {
+        console.log('No authorization header provided');
+        return new Response(
+          JSON.stringify({ success: false, error: 'Authentication required' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
-    const authResult = await verifyToken(token, jwtSecret);
-    if (!authResult.valid) {
-      console.log('Invalid or expired token');
-      return new Response(
-        JSON.stringify({ success: false, error: 'Invalid or expired token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+      const token = authHeader.replace('Bearer ', '');
+      const jwtSecret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      
+      if (!jwtSecret) {
+        console.error('SUPABASE_SERVICE_ROLE_KEY not configured');
+        return new Response(
+          JSON.stringify({ success: false, error: 'Server configuration error' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
-    console.log('Authentication successful');
+      const authResult = await verifyToken(token, jwtSecret);
+      if (!authResult.valid) {
+        console.log('Invalid or expired token');
+        return new Response(
+          JSON.stringify({ success: false, error: 'Invalid or expired token' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('JWT authentication successful');
+    } else {
+      console.log('Cron authentication successful');
+    }
 
     // Parse request body to get webhook mode and sources
     let webhookMode = 'production';
