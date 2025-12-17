@@ -553,21 +553,32 @@ Deno.serve(async (req) => {
       teamsMode,
     };
 
-    // Cron runs should NOT require the app token. We detect them by the project public key.
-    const anonKey = (Deno.env.get('SUPABASE_ANON_KEY') || '').trim();
-    const publishableKey = (Deno.env.get('SUPABASE_PUBLISHABLE_KEY') || '').trim();
-    const apikeyHeader = (req.headers.get('apikey') || '').trim();
-
-    const isCronCall =
-      (!!token && (token === anonKey || token === publishableKey)) ||
-      (!!apikeyHeader && (apikeyHeader === anonKey || apikeyHeader === publishableKey));
-
+    // Cron runs should NOT require the app token. Detect by JWT payload role: "anon"
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const admin = createClient(supabaseUrl, serviceRoleKey);
 
+    // Check if this is a Supabase anon key call (cron job)
+    let isCronCall = false;
+    if (token) {
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payloadJson = atob(padBase64(parts[1]));
+          const payload = JSON.parse(payloadJson);
+          // Supabase anon keys have role: "anon" in the payload
+          if (payload?.role === 'anon' && payload?.iss === 'supabase') {
+            isCronCall = true;
+            console.log('Detected Supabase anon key (cron call)');
+          }
+        }
+      } catch (e) {
+        console.log('Could not decode token for cron detection:', e);
+      }
+    }
+
     if (isCronCall) {
-      console.log('Cron/system call detected (public project key). Running in background.');
+      console.log('Cron/system call detected. Running in background.');
 
       // @ts-ignore - EdgeRuntime is provided by the runtime
       EdgeRuntime.waitUntil(
