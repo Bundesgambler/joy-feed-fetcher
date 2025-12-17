@@ -26,17 +26,70 @@ const RSS_SOURCES = {
 
 type SourceKey = keyof typeof RSS_SOURCES;
 
-const WEBHOOK_URL_PRODUCTION = 'https://n8n.mariohau.de/webhook/0d0e30a1-bd1a-4f86-b3af-25040c575a7e'
-const WEBHOOK_URL_TEST = 'https://n8n.mariohau.de/webhook-test/0d0e30a1-bd1a-4f86-b3af-25040c575a7e'
+// Read webhook URLs from environment secrets
+const getWebhookUrl = (mode: string): string => {
+  if (mode === 'test') {
+    return Deno.env.get('WEBHOOK_URL_TEST') || '';
+  }
+  return Deno.env.get('WEBHOOK_URL_PRODUCTION') || '';
+};
 
-// Microsoft Teams webhook URLs
-const TEAMS_WEBHOOK_PRODUCTION = 'https://scintilla.app.n8n.cloud/webhook/c051dac1-1988-463f-a983-25b925138e8e'
-const TEAMS_WEBHOOK_TEST = 'https://scintilla.app.n8n.cloud/webhook-test/c051dac1-1988-463f-a983-25b925138e8e'
+const getTeamsWebhookUrl = (mode: string): string => {
+  if (mode === 'test') {
+    return Deno.env.get('TEAMS_WEBHOOK_TEST') || '';
+  }
+  return Deno.env.get('TEAMS_WEBHOOK_PRODUCTION') || '';
+};
 
 interface RSSItem {
   title: string;
   link: string;
   pubDate: string | null;
+}
+
+// Verify JWT token
+async function verifyToken(token: string, secret: string): Promise<{ valid: boolean; payload?: any }> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return { valid: false };
+    }
+    
+    const [headerB64, payloadB64, signatureB64] = parts;
+    const encoder = new TextEncoder();
+    const data = `${headerB64}.${payloadB64}`;
+    
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    
+    // Decode signature from base64url
+    const signatureStr = signatureB64.replace(/-/g, '+').replace(/_/g, '/');
+    const signature = Uint8Array.from(atob(signatureStr), c => c.charCodeAt(0));
+    
+    const isValid = await crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
+    
+    if (!isValid) {
+      return { valid: false };
+    }
+    
+    // Decode payload
+    const payload = JSON.parse(atob(payloadB64));
+    
+    // Check expiration
+    if (payload.exp && payload.exp < Date.now()) {
+      return { valid: false };
+    }
+    
+    return { valid: true, payload };
+  } catch (error) {
+    console.error('Token verification error:', error);
+    return { valid: false };
+  }
 }
 
 function parseRSS(xmlText: string): RSSItem[] {
@@ -100,6 +153,38 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Authenticate the request
+    const authHeader = req.headers.get('authorization');
+    if (!authHeader) {
+      console.log('No authorization header provided');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const jwtSecret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    if (!jwtSecret) {
+      console.error('SUPABASE_SERVICE_ROLE_KEY not configured');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Server configuration error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const authResult = await verifyToken(token, jwtSecret);
+    if (!authResult.valid) {
+      console.log('Invalid or expired token');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid or expired token' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Authentication successful');
+
     // Parse request body to get webhook mode and sources
     let webhookMode = 'production';
     let enabledSources: SourceKey[] = ['nius', 'jungefreiheit', 'apollonews', 'freilichmagazin']; // Default: all enabled
@@ -128,10 +213,19 @@ Deno.serve(async (req) => {
       // No body or invalid JSON, use defaults
     }
     
-    const WEBHOOK_URL = webhookMode === 'test' ? WEBHOOK_URL_TEST : WEBHOOK_URL_PRODUCTION;
-    const TEAMS_WEBHOOK_URL = teamsMode === 'test' ? TEAMS_WEBHOOK_TEST : TEAMS_WEBHOOK_PRODUCTION;
-    console.log(`Using ${webhookMode} webhook:`, WEBHOOK_URL);
-    console.log(`Teams enabled: ${teamsEnabled}, mode: ${teamsMode}, URL:`, teamsEnabled ? TEAMS_WEBHOOK_URL : 'disabled');
+    const WEBHOOK_URL = getWebhookUrl(webhookMode);
+    const TEAMS_WEBHOOK_URL = getTeamsWebhookUrl(teamsMode);
+    
+    if (!WEBHOOK_URL) {
+      console.error('Webhook URL not configured');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Webhook URL not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    console.log(`Using ${webhookMode} webhook`);
+    console.log(`Teams enabled: ${teamsEnabled}, mode: ${teamsMode}`);
     
     // Handle retry for a single item
     if (retryItem) {
@@ -295,7 +389,7 @@ Deno.serve(async (req) => {
             console.log('Processing item:', item.link);
             
             // Send link to webhook
-            console.log('Calling webhook:', WEBHOOK_URL);
+            console.log('Calling webhook');
             const webhookResponse = await fetch(WEBHOOK_URL, {
               method: 'POST',
               headers: {
@@ -342,8 +436,8 @@ Deno.serve(async (req) => {
             }
             
             // Send to Microsoft Teams webhook if enabled
-            if (teamsEnabled) {
-              console.log('Sending to Teams webhook:', TEAMS_WEBHOOK_URL);
+            if (teamsEnabled && TEAMS_WEBHOOK_URL) {
+              console.log('Sending to Teams webhook');
               try {
                 const teamsResponse = await fetch(TEAMS_WEBHOOK_URL, {
                   method: 'POST',
