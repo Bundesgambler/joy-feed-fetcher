@@ -177,6 +177,55 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
+async function logRunStart(supabase: any, trigger: string) {
+  try {
+    const { data, error } = await supabase
+      .from('rss_runs')
+      .insert({
+        trigger,
+        success: true,
+        processed: 0,
+      })
+      .select('id');
+
+    if (error) {
+      console.error('rss_runs insert error:', error);
+      return null;
+    }
+
+    const id = Array.isArray(data) && data.length > 0 ? data[0]?.id : null;
+    return typeof id === 'string' ? id : null;
+  } catch (e) {
+    console.error('rss_runs insert unexpected error:', e);
+    return null;
+  }
+}
+
+async function logRunFinish(
+  supabase: any,
+  runId: string | null,
+  update: { success: boolean; processed: number; message?: string | null; error?: string | null }
+) {
+  if (!runId) return;
+
+  try {
+    const { error } = await supabase
+      .from('rss_runs')
+      .update({
+        finished_at: new Date().toISOString(),
+        success: update.success,
+        processed: update.processed,
+        message: update.message ?? null,
+        error: update.error ?? null,
+      })
+      .eq('id', runId);
+
+    if (error) console.error('rss_runs update error:', error);
+  } catch (e) {
+    console.error('rss_runs update unexpected error:', e);
+  }
+}
+
 async function processCheckRss(options: CheckRssOptions) {
   const WEBHOOK_URL = getWebhookUrl(options.webhookMode);
   const TEAMS_WEBHOOK_URL = getTeamsWebhookUrl(options.teamsMode);
@@ -504,18 +553,46 @@ Deno.serve(async (req) => {
       teamsMode,
     };
 
-    // Cron runs should NOT require any extra secret. We detect them by the standard public key.
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
-    const isCronCall = !!token && !!anonKey && token === anonKey;
+    // Cron runs should NOT require the app token. We detect them by the project public key.
+    const anonKey = (Deno.env.get('SUPABASE_ANON_KEY') || '').trim();
+    const publishableKey = (Deno.env.get('SUPABASE_PUBLISHABLE_KEY') || '').trim();
+    const apikeyHeader = (req.headers.get('apikey') || '').trim();
+
+    const isCronCall =
+      (!!token && (token === anonKey || token === publishableKey)) ||
+      (!!apikeyHeader && (apikeyHeader === anonKey || apikeyHeader === publishableKey));
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const admin = createClient(supabaseUrl, serviceRoleKey);
 
     if (isCronCall) {
-      console.log('Cron/system call detected (anon key). Running in background.');
+      console.log('Cron/system call detected (public project key). Running in background.');
 
       // @ts-ignore - EdgeRuntime is provided by the runtime
       EdgeRuntime.waitUntil(
-        processCheckRss(options)
-          .then((result) => console.log('Cron run finished:', result?.processed ?? result))
-          .catch((err) => console.error('Cron run failed:', err)),
+        (async () => {
+          const runId = await logRunStart(admin, 'cron');
+          try {
+            const result: any = await processCheckRss(options);
+            await logRunFinish(admin, runId, {
+              success: !!result?.success,
+              processed: Number(result?.processed ?? 0),
+              message: result?.message ?? null,
+              error: null,
+            });
+            console.log('Cron run finished:', result);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            await logRunFinish(admin, runId, {
+              success: false,
+              processed: 0,
+              message: null,
+              error: msg,
+            });
+            console.error('Cron run failed:', err);
+          }
+        })(),
       );
 
       return new Response(JSON.stringify({ success: true, accepted: true }), {
@@ -532,8 +609,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const jwtSecret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!jwtSecret) {
+    if (!serviceRoleKey) {
       console.error('SUPABASE_SERVICE_ROLE_KEY not configured');
       return new Response(JSON.stringify({ success: false, error: 'Server configuration error' }), {
         status: 500,
@@ -541,7 +617,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const authResult = await verifyToken(token, jwtSecret);
+    const authResult = await verifyToken(token, serviceRoleKey);
     if (!authResult.valid) {
       console.log('Invalid or expired token');
       return new Response(JSON.stringify({ success: false, error: 'Invalid or expired token' }), {
@@ -552,10 +628,30 @@ Deno.serve(async (req) => {
 
     console.log('JWT authentication successful');
 
-    const result = await processCheckRss(options);
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    const runId = await logRunStart(admin, options.retryItem ? 'retry' : 'manual');
+
+    try {
+      const result: any = await processCheckRss(options);
+      await logRunFinish(admin, runId, {
+        success: !!result?.success,
+        processed: Number(result?.processed ?? 0),
+        message: result?.message ?? null,
+        error: result?.success ? null : (result?.error ?? null),
+      });
+
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await logRunFinish(admin, runId, {
+        success: false,
+        processed: 0,
+        message: null,
+        error: msg,
+      });
+      throw err;
+    }
   } catch (error) {
     console.error('Error in check-rss function:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

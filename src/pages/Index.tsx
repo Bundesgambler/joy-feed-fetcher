@@ -36,7 +36,14 @@ const RSS_SOURCES = {
 
 type SourceKey = keyof typeof RSS_SOURCES;
 
-function isWithinOperatingHours(): boolean {
+type RssRunRow = {
+  started_at: string;
+  finished_at: string | null;
+  success: boolean;
+  processed: number;
+  message: string | null;
+  error: string | null;
+};
   const now = new Date();
   const hour = now.getHours();
   return hour >= 7 && hour < 20;
@@ -52,12 +59,79 @@ const Index = () => {
   const [isMonitoringOn, setIsMonitoringOn] = useState(true);
   const [teamsEnabled, setTeamsEnabled] = useState(true);
   const [teamsMode, setTeamsMode] = useState<'production' | 'test'>('production');
+  const [lastRun, setLastRun] = useState<RssRunRow | null>(null);
+  const [lastSuccessfulRun, setLastSuccessfulRun] = useState<RssRunRow | null>(null);
+
+  const formatBerlinTime = (iso: string) =>
+    new Intl.DateTimeFormat('de-DE', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: 'Europe/Berlin',
+    }).format(new Date(iso));
+
+  const lastRunLabel = (() => {
+    const preferred = lastSuccessfulRun?.finished_at || lastSuccessfulRun?.started_at;
+    if (preferred) {
+      return `${formatBerlinTime(preferred)} (OK, ${lastSuccessfulRun?.processed ?? 0} Artikel)`;
+    }
+
+    if (lastRun?.finished_at || lastRun?.started_at) {
+      const t = lastRun.finished_at || lastRun.started_at;
+      const status = lastRun.success ? 'OK' : 'Fehler';
+      return `${formatBerlinTime(t)} (${status}, ${lastRun.processed ?? 0} Artikel)`;
+    }
+
+    return '—';
+  })();
 
   useEffect(() => {
     const interval = setInterval(() => {
       setIsActive(isWithinOperatingHours());
     }, 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadLastRun = async () => {
+      const [lastAny, lastOk] = await Promise.all([
+        supabase
+          .from('rss_runs')
+          .select('started_at, finished_at, success, processed, message, error')
+          .order('started_at', { ascending: false })
+          .limit(1),
+        supabase
+          .from('rss_runs')
+          .select('started_at, finished_at, success, processed, message, error')
+          .eq('success', true)
+          .not('finished_at', 'is', null)
+          .order('finished_at', { ascending: false })
+          .limit(1),
+      ]);
+
+      if (!mounted) return;
+
+      if (lastAny.error) {
+        console.error('Error loading last run:', lastAny.error);
+      } else {
+        setLastRun((lastAny.data?.[0] as any) ?? null);
+      }
+
+      if (lastOk.error) {
+        console.error('Error loading last successful run:', lastOk.error);
+      } else {
+        setLastSuccessfulRun((lastOk.data?.[0] as any) ?? null);
+      }
+    };
+
+    loadLastRun();
+    const poll = setInterval(loadLastRun, 30000);
+
+    return () => {
+      mounted = false;
+      clearInterval(poll);
+    };
   }, []);
 
   const handleManualCheck = async () => {
