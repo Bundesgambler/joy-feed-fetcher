@@ -580,12 +580,18 @@ Deno.serve(async (req) => {
     if (isCronCall) {
       console.log('Cron/system call detected. Running in background.');
 
+      // For cron calls, always enable Teams webhook
+      const cronOptions: CheckRssOptions = {
+        ...options,
+        teamsEnabled: true,  // Always send to Teams for cron jobs
+      };
+
       // @ts-ignore - EdgeRuntime is provided by the runtime
       EdgeRuntime.waitUntil(
         (async () => {
           const runId = await logRunStart(admin, 'cron');
           try {
-            const result: any = await processCheckRss(options);
+            const result: any = await processCheckRss(cronOptions);
             await logRunFinish(admin, runId, {
               success: !!result?.success,
               processed: Number(result?.processed ?? 0),
